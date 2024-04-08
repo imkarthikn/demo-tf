@@ -4,6 +4,7 @@ resource "aws_launch_configuration" "app_launch_config" {
   image_id             = data.aws_ami.latest.id
   instance_type         = var.instance_type
   iam_instance_profile = aws_iam_instance_profile.application_instance_profile.name
+  depends_on = [aws_lb.app_lb]
 
   # User data script with fixed CloudWatch agent configuration
   user_data = <<-EOF
@@ -18,6 +19,33 @@ resource "aws_launch_configuration" "app_launch_config" {
     systemctl enable nginx
     systemctl start php-fpm
     systemctl enable php-fpm
+    # Install WordPress
+    cd /var/www/html
+    wget https://wordpress.org/latest.tar.gz
+    tar -xzf latest.tar.gz
+    mv wordpress/* .
+    rm -rf wordpress latest.tar.gz
+
+    # Configure WordPress to use RDS as database
+    cat > wp-config.php <<EOL
+    <?php
+    define('DB_NAME', '${var.db_instance_name}');
+    define('DB_USER', '${var.db_username}');
+    define('DB_PASSWORD', '${var.db_password}');
+    define('DB_HOST', '${aws_db_instance.main.endpoint}');
+    define('DB_CHARSET', 'utf8mb4');
+    define('DB_COLLATE', '');
+
+    # Other WordPress configuration settings...
+
+    EOL
+
+    chown -R nginx:nginx /var/www/html
+
+    # Restart nginx and PHP-FPM to apply changes
+    systemctl restart nginx
+    systemctl restart php-fpm
+    
 
     # Install CloudWatch agent
     yum install -y amazon-cloudwatch-agent
@@ -77,6 +105,8 @@ resource "aws_launch_configuration" "app_launch_config" {
   lifecycle {
     create_before_destroy = true
   }
+  # placement_tenancy    = "default"  # Optional, use if needed
+  associate_public_ip_address = false
 }
 
 # Data source to get the latest Amazon Linux AMI
@@ -100,7 +130,11 @@ resource "aws_autoscaling_group" "app_asg" {
   min_size          = 2
   max_size          = 2
   launch_configuration = aws_launch_configuration.app_launch_config.name
-  vpc_zone_identifier = concat(aws_subnet.public[*].id, aws_subnet.private[*].id)
+  vpc_zone_identifier = aws_subnet.private[*].id
+  #vpc_zone_identifier  = concat(aws_subnet.public[*].id, aws_subnet.private[*].id)
+  target_group_arns = [aws_lb_target_group.app_target_group.arn]
+  #iam_instance_profile = aws_iam_instance_profile.application_instance_profile.name
+  depends_on = [aws_lb.app_lb]
 
   tag {
     key               = "Name"

@@ -121,6 +121,12 @@ resource "aws_security_group" "application" {
     protocol    = "tcp"
     security_groups = [aws_security_group.load_balancer.id]
   }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]  # Allow all outbound traffic
+  }
 }
 
 resource "aws_security_group" "rds" {
@@ -136,7 +142,39 @@ resource "aws_security_group" "rds" {
     protocol    = "tcp"
     security_groups = [aws_security_group.application.id]
   }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]  # Allow all outbound traffic
+  }
 }
+
+resource "aws_security_group" "alb_sg" {
+  name        = "alb-sg"
+  description = "Security group for Application Load Balancer"
+  vpc_id      = aws_vpc.main.id
+
+  // Define security group rules for the ALB
+  // Allow inbound traffic on port 80 from anywhere
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  // Allow outbound traffic to the private subnet
+ egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]  # Allow all outbound traffic
+  }
+
+  tags = var.common_tags
+}
+
 
 # Create RDS subnet group
 resource "aws_db_subnet_group" "rds_subnet_group" {
@@ -171,4 +209,5 @@ resource "aws_iam_policy_attachment" "cloudwatch_policy_attachment" {
   roles      = [aws_iam_role.application_role.name]
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchFullAccess"
 }
+
 
